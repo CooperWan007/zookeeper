@@ -724,6 +724,7 @@ public class FastLeaderElection implements Election {
      * Check if a pair (server id, zxid) succeeds our
      * current vote.
      *
+     *
      */
     protected boolean totalOrderPredicate(long newId, long newZxid, long newEpoch, long curId, long curZxid, long curEpoch) {
         LOG.debug("id: " + newId + ", proposed id: " + curId + ", zxid: 0x" +
@@ -736,8 +737,12 @@ public class FastLeaderElection implements Election {
          * We return true if one of the following three cases hold:
          * 1- New epoch is higher
          * 2- New epoch is the same as current epoch, but new zxid is higher
-         * 3- New epoch is the same as current epoch, new zxid is the same
-         *  as current zxid, but server id is higher.
+         * 3- New epoch is the same as current epoch, new zxid is the same as current zxid,
+         * but server id is higher.
+         *  对端投票胜出返回true情况：
+         *      1、对端peerEpoch > 当前peerEpoch
+         *      2、对端peerEpoch == 当前peerEpoch时，对端zxid > 当前zxid
+         *      3、对端peerEpoch == 当前peerEpoch，对端zxid == 当前zxid时，对端serverID > 当前serverID
          */
 
         return ((newEpoch > curEpoch) ||
@@ -922,8 +927,17 @@ public class FastLeaderElection implements Election {
             int notTimeout = minNotificationInterval;
 
             synchronized(this){
+                //logicalclock 维护electionEpoch，即选举轮次，在进行投票结果赛选的时候需要保证大家在一个投票轮次
                 logicalclock.incrementAndGet();
-                updateProposal(getInitId(), getInitLastLoggedZxid(), getPeerEpoch());
+                updateProposal(getInitId(), //getInitId()用于获取当前myid
+                        getInitLastLoggedZxid(),//getInitLastLoggedZxid()提取lastProcessedZxid值，lastProcessedZxid是最后一次commit的事务请求的zxid
+                        // getPeerEpoch()：获取epoch值，每个leader任期内都要有一个
+                        // epoch代表该Leader轮次，同时把该epoch同步到集群送的所有其
+                        // 它节点，并会被保存到本地硬盘dataLogDir目录下currentEpoch
+                        // 文件中，这里的getPeerEpoch()就是获取最近一次Leader的epoch，
+                        // 如果是第一次部署启动则默认从0开始
+                        getPeerEpoch());
+
             }
 
             LOG.info("New election. My id =  " + self.getId() +
